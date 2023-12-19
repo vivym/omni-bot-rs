@@ -1,0 +1,19 @@
+version: "3.8"
+
+services:
+  mongo:
+    image: mongo:latest
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  rabbitmq:
+    image: rabbitmq:management
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+
+volumes:
+  mongo-data:
