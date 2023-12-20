@@ -1,7 +1,25 @@
 use crate::{Context, Error, schemas::{VideoStylizerTaskCreation, VideoStylizerTaskInDB}};
 use lapin::{options::BasicPublishOptions, BasicProperties};
-use poise::serenity_prelude as serenity;
+use poise::{serenity_prelude as serenity, ChoiceParameter};
 use mongodb::results::InsertOneResult;
+
+#[derive(ChoiceParameter)]
+enum StyleChoice {
+    #[name = "Chinese Painting"]
+    ChinesePainting,
+    #[name = "Oil Painting"]
+    OilPainting,
+    #[name = "Cyberpunk"]
+    Cyberpunk,
+    #[name = "3D Cartoon"]
+    Cartoon3D,
+    #[name = "Japanese Animation"]
+    JapaneseAnimation,
+    #[name = "Paper Art"]
+    PaperArt,
+    #[name = "Clay Look"]
+    ClayLook,
+}
 
 #[poise::command(
     prefix_command,
@@ -15,7 +33,7 @@ pub async fn video_stylizer(
     #[description = "Video to stylize."]
     video: serenity::Attachment,
     #[description = "Style prompt to apply to the video."]
-    style_prompt: String,
+    style_prompt: StyleChoice,
     #[description = "Video prompt."]
     video_prompt: Option<String>,
     #[description = "Negative prompt to apply to the video."]
@@ -27,13 +45,24 @@ pub async fn video_stylizer(
     seed: Option<u64>,
 ) -> Result<(), Error> {
     let video_url = video.url;
-    let seed = seed.unwrap_or_else(|| rand::random());
+    let seed = seed.unwrap_or_else(|| rand::random::<u16>() as u64);
 
-    if video.size > 8 * 1024 * 1024 {
-        let response = "> File size too large. Max file size is **8MB**.".to_owned();
+    if video.size > 64 * 1024 * 1024 {
+        let response = "> File size too large. Max file size is **64MB**.".to_owned();
         ctx.say(response).await?;
         return Ok(());
     }
+
+    let style_prompt = match style_prompt {
+        StyleChoice::ChinesePainting => "<chinese painting>",
+        StyleChoice::OilPainting => "<oil painting>",
+        StyleChoice::Cyberpunk => "<cyberpunk>",
+        StyleChoice::Cartoon3D => "<3d cartoon>",
+        StyleChoice::JapaneseAnimation => "<japanese animation>",
+        StyleChoice::PaperArt => "<paper art>",
+        StyleChoice::ClayLook => "<clay look>",
+    };
+    let style_prompt = style_prompt.to_owned();
 
     let task = VideoStylizerTaskCreation {
         user_id: ctx.author().id.0,
@@ -46,10 +75,7 @@ pub async fn video_stylizer(
         seed,
     };
 
-    println!("task: {:?}", task);
-
     let task_id = {
-        // let col = ctx.data().video_stylizer_task_collection.lock().await;
         let col = ctx.data().video_stylizer_task_collection.clone();
 
         let task_in_db: VideoStylizerTaskInDB = task.clone().into();
@@ -57,15 +83,13 @@ pub async fn video_stylizer(
             Ok(InsertOneResult{ inserted_id, .. }) => {
                 Some(inserted_id.as_object_id().unwrap().to_hex())
             },
-            Err(_) => {
-                let response = "> Failed to create video stylization task.".to_owned();
+            Err(err) => {
+                let response = format!("> Failed to create video stylization task. Error: {:?}", err);
                 ctx.say(response).await?;
                 None
             }
         }
     };
-
-    println!("task_id: {:?}", task_id);
 
     if task_id.is_some() {
         let task_id = task_id.unwrap();

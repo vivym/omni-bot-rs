@@ -9,14 +9,14 @@ use std::{env, sync::Arc, time::Duration};
 async fn on_error(error: poise::FrameworkError<'_, UserData, Error>) {
     match error {
         poise::FrameworkError::Setup { error, .. } => {
-            println!("Failed to setup bot: {:?}", error);
+            eprintln!("Failed to setup bot: {:?}", error);
         }
         poise::FrameworkError::Command { error, ctx, .. } => {
-            println!("Error in command `{}`: {:?}", ctx.command().name, error);
+            eprintln!("Error in command `{}`: {:?}", ctx.command().name, error);
         }
         error => {
             if let Err(e) = poise::builtins::on_error(error).await {
-                println!("Error in error handler: {:?}", e);
+                eprintln!("Error in error handler: {:?}", e);
             }
         }
     }
@@ -111,22 +111,80 @@ async fn main() {
                     None
                 ).await.unwrap();
 
-                let dst_video_path = task.result.unwrap();
-                let dst_video_name = dst_video_path.split("/").last().unwrap().to_owned();
-                let dst_video_file = tokio::fs::File::open(dst_video_path).await.unwrap();
+                match task.status.as_str() {
+                    "completed" => {
+                        if task.result.is_none() {
+                            eprintln!("Task result is none: {:?}", task);
+                            continue;
+                        }
 
-                let channel = ChannelId(task.channel_id).to_channel(&ctx).await;
-                if let Ok(Channel::Guild(channel)) = channel {
-                    channel.send_files(
-                        &ctx,
-                        [AttachmentType::File { file: &dst_video_file, filename: dst_video_name }],
-                        |m| m.content("Here is your video stylization result."),
-                    ).await.unwrap();
-                } else {
-                    eprintln!("Failed to get channel. {:?}", channel);
+                        let dst_video_path = task.result.unwrap();
+
+                        if !tokio::fs::try_exists(&dst_video_path).await.unwrap() {
+                            eprintln!("File does not exist: {:?}", dst_video_path);
+                            continue;
+                        }
+
+                        let dst_video_name = dst_video_path.split("/").last().unwrap().to_owned();
+                        let dst_video_file = tokio::fs::File::open(dst_video_path).await.unwrap();
+
+                        let channel = ChannelId(task.channel_id).to_channel(&ctx).await;
+                        if let Ok(Channel::Guild(channel)) = channel {
+                            let mut responses = Vec::with_capacity(6);
+                            responses.push(
+                                format!(
+                                    "New generation from <@{}>:\nTask: **Video Stylization**\nTask ID: {}",
+                                    task.user_id,
+                                    task.task_id,
+                                )
+                            );
+
+                            if let Some(video_prompt) = task.video_prompt {
+                                responses.push(format!("Video Prompt: {}", video_prompt));
+                            }
+
+                            responses.push(format!("Style Prompt: {}", task.style_prompt));
+
+                            if let Some(negative_prompt) = task.negative_prompt {
+                                responses.push(format!("Negative Prompt: {}", negative_prompt));
+                            }
+
+                            if let Some(max_keyframes) = task.max_keyframes {
+                                responses.push(format!("Max Keyframes: {}", max_keyframes));
+                            }
+
+                            responses.push(format!("Seed: {}", task.seed));
+
+                            let response = responses.join("\n");
+
+                            channel.send_files(
+                                &ctx,
+                                [AttachmentType::File { file: &dst_video_file, filename: dst_video_name }],
+                                |m| m.content(response),
+                            ).await.unwrap();
+                        } else {
+                            eprintln!("Failed to get channel. {:?}", channel);
+                        }
+                    },
+                    "failed" => {
+                        let channel = ChannelId(task.channel_id).to_channel(&ctx).await;
+                        if let Ok(Channel::Guild(channel)) = channel {
+                            channel.say(
+                                &ctx,
+                                format!(
+                                    "> Failed to stylize your video. <@{}> Error: {:?}", task.user_id, task.result.unwrap()
+                                ),
+                            ).await.unwrap();
+                        } else {
+                            eprintln!("Failed to get channel. {:?}", channel);
+                        }
+                    },
+                    _ => {
+                        eprintln!("Invalid task status: {:?}", task);
+                    }
                 }
             } else {
-                println!("Failed to deserialize task.");
+                eprintln!("Failed to deserialize task.");
             }
             delivery.ack(BasicAckOptions::default()).await.expect("ack");
         }

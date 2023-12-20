@@ -31,6 +31,7 @@ pub struct VideoStylizerResponseBody {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    println!("args: {:?}", args);
 
     let mut threads = Vec::with_capacity(args.backend.len());
     for backend in args.backend {
@@ -74,7 +75,6 @@ async fn main() {
                 );
 
                 if let Ok(task) = _task {
-                    println!("Got task: {:?}", task);
                     match http_client.post(&backend)
                         .json(&VideoStylizerRequestBody {
                             videoname: task.src_video_url.clone(),
@@ -109,7 +109,7 @@ async fn main() {
                         }
                     }
                 } else {
-                    println!("Failed to deserialize task.");
+                    eprintln!("Failed to deserialize task.");
                     delivery.ack(BasicAckOptions::default()).await.expect("ack");
                 }
             }

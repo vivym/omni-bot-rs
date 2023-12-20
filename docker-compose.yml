@@ -1,19 +1,40 @@
 version: "3.8"
 
 services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: bot
+    restart: on-failure:5
+    env_file:
+      - .env
+    depends_on:
+      - mongo
+      - rabbitmq
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: worker
+    restart: on-failure:5
+    env_file:
+      - .env
+    depends_on:
+      - rabbitmq
+
   mongo:
     image: mongo:latest
     restart: unless-stopped
     volumes:
       - mongo-data:/data/db
-    ports:
-      - "127.0.0.1:27017:27017"
 
   rabbitmq:
     image: rabbitmq:management
-    ports:
-      - "127.0.0.1:5672:5672"
-      - "127.0.0.1:15672:15672"
+    restart: unless-stopped
 
 volumes:
   mongo-data:
